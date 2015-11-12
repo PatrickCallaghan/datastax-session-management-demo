@@ -116,7 +116,6 @@ public class SessionManagementDao {
 		//Update the expiry date 
 		String expiryDate = dateFormatter.format(new DateTime().plusMinutes(10).toDate());
 		
-		this.session.execute(this.insertLastTime.bind(new Date()));
 		this.session.execute(this.insertTicketToCleanerStmt.bind(Expiry.SOFT.name(), expiryDate, ticketId));
 		
 		return true;
