@@ -1,17 +1,29 @@
-Transaction Search Demo
+Session Management Demo
 ========================
 
-This requires DataStax Enterprise running in Solr mode.
+This demo tries to replicate a session management system. The business rules of the system are 
 
-This demo shows 3 ways to search transactions in a users account. In this demo we will presume that users can enter notes for each transaction on their account and then they will want to search by some or all of these notes.
+1. A ticket is created when a user enters a site. 
 
-The 3 different ways of querying will be 
-1. SolrJ
+2. Each ticket has a max inactivity time of 10 mins
 
-2. CQL using a partition restriction and the solr_query clause
+3. Each time there is an interaction, the ticket is extended another 10 mins
 
-3. CQL using a partition restriction and searching the transactions in java code from the client.
+4. If a user has declared that they want to kept logged in, the ticket has a max life of 1 day
 
+5. If a user has declared that they do not want to kept logged in, the ticket has a max life of 4 hours
+
+6. A ticket must not be valid after its declared time. 
+
+We can do this by saying
+	
+If its keep_logged_in ticket - then use a ttl of 1 day
+
+If its not a keep_logged_in ticket - then use a ttl of 4 hours
+
+Every time a ticket is presented, updated the ticket with a ttl of 10 mins.
+
+A cleaner will be used to ensure that all tickets are removed. 
 
 To create the schema, run the following
 
@@ -19,24 +31,10 @@ To create the schema, run the following
 	
 To create some transactions, run the following 
 	
-	mvn clean compile exec:java -Dexec.mainClass="com.datastax.creditcard.Main" 
+	mvn clean compile exec:java -Dexec.mainClass="com.datastax.session.Main"
+	
+	mvn clean compile exec:java -Dexec.mainClass="com.datastax.session.RunCleaner" 
 
-You can the following to change the default no of transactions and credit cards 
-	
-	-DnoOfTransactions=10000000 -DnoOfCreditCards=1000000
-	
-To create the solr core, run 
-
-	bin/dsetool create_core datastax_transaction_search_demo.latest_transactions generateResources=true reindex=true coreOptions=rt.yaml
-	
-To run the requests run the following 
-	
-	mvn clean compile exec:java -Dexec.mainClass="com.datastax.creditcard.RunRequests"
-	
-To change the no of requests add the following
-
-	-DnoOfRequests=100000 -DnoOfCreditCards=1000000	
-	
 To remove the tables and the schema, run the following.
 
     mvn clean compile exec:java -Dexec.mainClass="com.datastax.demo.SchemaTeardown"

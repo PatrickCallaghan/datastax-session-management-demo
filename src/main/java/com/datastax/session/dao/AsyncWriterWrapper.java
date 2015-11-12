@@ -2,6 +2,7 @@ package com.datastax.session.dao;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +19,7 @@ public class AsyncWriterWrapper {
 	private Exception exception;
 	private int retries = 3;
 	private int counter = 0;
+	private AtomicLong statementCounter = new AtomicLong(0);
 
 	public AsyncWriterWrapper(){
 		this.statements = new ArrayList<Statement>();
@@ -33,6 +35,11 @@ public class AsyncWriterWrapper {
 	
 	public void addStatement(Statement statement){
 		this.statements.add(statement);
+		statementCounter.incrementAndGet();
+	}
+	
+	public long getStatementCounter(){
+		return this.statementCounter.get();
 	}
 	
 	public boolean executeAsync(Session session){

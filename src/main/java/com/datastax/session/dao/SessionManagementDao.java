@@ -11,39 +11,43 @@ import org.joda.time.DateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.datastax.creditcard.model.Expiry;
-import com.datastax.creditcard.model.Ticket;
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
+import com.datastax.session.model.Expiry;
+import com.datastax.session.model.Ticket;
 
 public class SessionManagementDao {
 
 	private static Logger logger = LoggerFactory.getLogger(SessionManagementDao.class);
-	private static final int DEFAULT_LIMIT = 10000;
+	private static final int DAY = 85000;
+	private static final int HOUR = 3600;
+	private static final int MINS_10 = 600;
 	private Session session;
 
-	private DateFormat dateFormatter = new SimpleDateFormat("yyyyMMdd hhmm");
+	private DateFormat dateFormatter = new SimpleDateFormat("yyyyMMdd HHmm");
 	private static String keyspaceName = "datastax_session_management_demo";
 
 	private static String ticketTable = keyspaceName + ".ticket";
 	private static String lastCleanerTimeTable = keyspaceName + ".ticket_cleaner_lasttime";
 	private static String ticketCleanerTable = keyspaceName + ".ticket_cleaner";
 	
-	private String INSERT_TICKET = "insert into " + ticketTable + " (id, data, last_updated) values (?, ?, ?)";
+	private String INSERT_TICKET = "insert into " + ticketTable + " (id, data, last_updated) values (?, ?, ?) using TTL ?";
 	private String DELETE_TICKET = "delete from " + ticketTable + " where id = ?";
-	private String SELECT_TICKET = "select id, data, updated_time from " + ticketTable + " where id = ?";
+	private String SELECT_TICKET = "select id, data, last_updated from " + ticketTable + " where id = ?";
+	private String SELECT_ID_FROM_TICKET = "select id from " + ticketTable + " where id = ?";
 	
 	private String INSERT_TICKET_TO_CLEANER = "insert into " + ticketCleanerTable + " (expiry_type, date_bucket, id) values (?, ?, ?)";
-	private String SELECT_FROM_CLEANER = "select id from " + ticketCleanerTable + " where expiry_type = ? anad date_bucket = ?";
+	private String SELECT_FROM_CLEANER = "select id from " + ticketCleanerTable + " where expiry_type = ? and date_bucket = ?";
 	
 	private String INSERT_TICKET_LASTUPDATED = "INSERT INTO " + lastCleanerTimeTable + " (id, last_updated) values ('dummy', ?)";
 	private String SELECT_CLEANER_LASTUPDATED = "select last_updated from  " + lastCleanerTimeTable + " where id = 'dummy'";
 		
 	private PreparedStatement insertTicketStmt;
 	private PreparedStatement selectTicketStmt;
+	private PreparedStatement selectIdTicketStmt;
 	private PreparedStatement deleteTicketStmt;
 	
 	private PreparedStatement insertTicketToCleanerStmt;
@@ -60,6 +64,7 @@ public class SessionManagementDao {
 		this.session = cluster.connect();
 		
 		this.selectTicketStmt = session.prepare(SELECT_TICKET);
+		this.selectIdTicketStmt = session.prepare(SELECT_ID_FROM_TICKET);
 		this.insertTicketStmt = session.prepare(INSERT_TICKET);
 		this.deleteTicketStmt = session.prepare(DELETE_TICKET);
 		
@@ -72,13 +77,21 @@ public class SessionManagementDao {
 
 	public void insertNewTicket(Ticket ticket){
 		
-		//Ticket must expiry every day, create bucket on minutes - no seconds.
-		String expiryDate = dateFormatter.format(new DateTime().plusDays(1).toDate());
+		AsyncWriterWrapper wrapper = new AsyncWriterWrapper();		
+		int ttl = ticket.isKeepLoggedIn() ? DAY : HOUR;
 		
-		AsyncWriterWrapper wrapper = new AsyncWriterWrapper();
+		wrapper.addStatement(this.insertTicketStmt.bind(ticket.getId(), ticket.getData(), ticket.getLastUpdated(), ttl));
 		
-		wrapper.addStatement(this.insertTicketStmt.bind(ticket.getId(), ticket.getData(), ticket.getLastUpdated()));
-		wrapper.addStatement(this.insertTicketToCleanerStmt.bind(Expiry.FULL, expiryDate, ticket.getId()));
+		if (ticket.isKeepLoggedIn()){
+			//If keeping login - then expire in 1 day
+			String expiryDate = dateFormatter.format(new DateTime().plusDays(1).toDate());
+			wrapper.addStatement(this.insertTicketToCleanerStmt.bind(Expiry.FULL.name(), expiryDate, ticket.getId()));
+		
+		}else{
+			//If not keeping login - then expire in 1 hour
+			String expiryDate = dateFormatter.format(new DateTime().plusMinutes(60).toDate());			
+			wrapper.addStatement(this.insertTicketToCleanerStmt.bind(Expiry.SOFT.name(), expiryDate, ticket.getId()));
+		}
 		
 		while(!wrapper.exhausted()){
 			if (!wrapper.executeAsync(session)){
@@ -88,18 +101,36 @@ public class SessionManagementDao {
 			}			
 		}		
 	}
-	public void updateTicket(String ticketId, Date updatedTime){
-		this.session.execute(this.insertLastTime.bind(ticketId, updatedTime));
+	
+	//Create a new expiry date for the ticket. 
+	public boolean updateTicket(String ticketId){
+		
+		//Check if ticket exists
+		ResultSet resultSet = this.session.execute(this.selectIdTicketStmt.bind(ticketId));
+		
+		if (resultSet == null || resultSet.one() == null){
+			logger.info("Ticket with id " + ticketId + " has expired.");
+			return false;
+		}
+		
+		//Update the expiry date 
+		String expiryDate = dateFormatter.format(new DateTime().plusMinutes(10).toDate());
+		
+		this.session.execute(this.insertLastTime.bind(ticketId, new Date()));
+		this.session.execute(this.insertTicketToCleanerStmt.bind(Expiry.SOFT.name(), expiryDate, ticketId));
+		
+		return true;
 	}
 	
 	public void runCleaner(){
 		
 		//Get last cleaned time
-		DateTime lastClean = new DateTime(session.execute(selectLastTime.bind()).one().getDate("last_updated"));
-		
+		DateTime lastClean = new DateTime(session.execute(selectLastTime.bind()).one().getDate("last_updated"));		
 		DateTime latestMinute = DateTime.now().minusMinutes(1);
 		
 		while (lastClean.isBefore(latestMinute)){
+			
+			logger.info("Cleaning for " + lastClean);
 			
 			//Get all tickets that are eligible to expire - Full clean - must be expired
 			List<String> hardCleanTickets = this.getAllExpiryTickets(lastClean, Expiry.FULL.name());
@@ -111,18 +142,21 @@ public class SessionManagementDao {
 						
 			//Move on to next minute and save
 			lastClean = lastClean.plusMinutes(1);
-			session.execute(insertLastTime.bind(this.dateFormatter.format(lastClean.toDate())));
+			session.execute(insertLastTime.bind(lastClean.toDate()));
 		}
-			
-		String newCleanerTimeBucket = dateFormatter.format(new DateTime().plusDays(1).toDate());		
 	}
 	
 	private void hardCleanTickets(List<String> hardCleanTickets){
 		AsyncWriterWrapper hardCleaner = new AsyncWriterWrapper();
-		
+					
 		for (String id : hardCleanTickets){
 			hardCleaner.addStatement(this.deleteTicketStmt.bind(id));
+			
+			//Do something else with the ticket id if necessary.
 		}
+		
+		logger.info("Cleaning HARD - " + hardCleanTickets.size() + " tickets.");
+		
 		hardCleaner.executeAsync(session);
 		
 		while(!hardCleaner.exhausted()){
@@ -134,20 +168,24 @@ public class SessionManagementDao {
 		}
 	}
 	
-	private void softCleanTickets(List<String> hardCleanTickets){
+	private void softCleanTickets(List<String> softCleanTickets){
 		AsyncWriterWrapper softCleaner = new AsyncWriterWrapper();
 		
-		for (String id : hardCleanTickets){
+		for (String id : softCleanTickets){
 			
 			Ticket ticket = selectTicketById(id);
 			
 			if(ticket!=null){
 				
 				//If ticket hasn't been used in over an hour
-				if (DateTime.now().isAfter(new DateTime(ticket.getLastUpdated()).plusHours(1))){
+				if (DateTime.now().isAfter(new DateTime(ticket.getLastUpdated()).plusMinutes(MINS_10))){
 					softCleaner.addStatement(this.deleteTicketStmt.bind(id));
-				}				
+					
+					//Do something else with the ticket id if necessary.
+				}									
 			}
+			
+			logger.info("Cleaning SOFT - " + softCleaner.getStatementCounter() + " of " + softCleanTickets.size() + " tickets.");
 		}
 		softCleaner.executeAsync(session);
 		
