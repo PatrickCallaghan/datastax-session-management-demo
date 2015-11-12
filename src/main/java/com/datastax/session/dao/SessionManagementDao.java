@@ -116,7 +116,7 @@ public class SessionManagementDao {
 		//Update the expiry date 
 		String expiryDate = dateFormatter.format(new DateTime().plusMinutes(10).toDate());
 		
-		this.session.execute(this.insertLastTime.bind(ticketId, new Date()));
+		this.session.execute(this.insertLastTime.bind(new Date()));
 		this.session.execute(this.insertTicketToCleanerStmt.bind(Expiry.SOFT.name(), expiryDate, ticketId));
 		
 		return true;
@@ -178,15 +178,14 @@ public class SessionManagementDao {
 			if(ticket!=null){
 				
 				//If ticket hasn't been used in over an hour
-				if (DateTime.now().isAfter(new DateTime(ticket.getLastUpdated()).plusMinutes(MINS_10))){
+				if (DateTime.now().isAfter(new DateTime(ticket.getLastUpdated()))){
 					softCleaner.addStatement(this.deleteTicketStmt.bind(id));
 					
 					//Do something else with the ticket id if necessary.
 				}									
-			}
-			
-			logger.info("Cleaning SOFT - " + softCleaner.getStatementCounter() + " of " + softCleanTickets.size() + " tickets.");
+			}			
 		}
+		logger.info("Cleaning SOFT - " + softCleaner.getStatementCounter() + " of " + softCleanTickets.size() + " tickets.");
 		softCleaner.executeAsync(session);
 		
 		while(!softCleaner.exhausted()){

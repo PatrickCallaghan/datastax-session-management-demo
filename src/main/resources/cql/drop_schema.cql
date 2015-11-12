@@ -1,2 +1,1 @@
-drop keyspace datastax_transaction_search_demo;
-	
+drop keyspace datastax_session_management_demo;

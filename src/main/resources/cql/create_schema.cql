@@ -5,8 +5,8 @@ use datastax_session_management_demo;
 create table if not exists ticket( 
 	id text PRIMARY KEY,
 	data text, 
-	vv timestamp
-) WITH default_time_to_live = 172800;  //2 days
+	last_updated timestamp
+) WITH default_time_to_live = 172800;  
 
 create table if not exists ticket_cleaner_lasttime(
 	id text PRIMARY KEY,
