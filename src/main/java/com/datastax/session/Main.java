@@ -2,7 +2,11 @@ package com.datastax.session;
 
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import org.joda.time.DateTime;
 import org.slf4j.Logger;
@@ -21,10 +25,25 @@ public class Main {
 		String contactPointsStr = PropertyHelper.getProperty("contactPoints", "localhost");
 		String noOfTicketsStr = PropertyHelper.getProperty("noOfTickets", "10000000");
 		
-		Map<String, Ticket> existingTicketIds = new HashMap<String, Ticket>();
+		final Map<String, Ticket> existingTicketIds = new HashMap<String, Ticket>();
 		final SessionManagementDao dao = new SessionManagementDao(contactPointsStr.split(","));		
 		final int noOfTickets = Integer.parseInt(noOfTicketsStr);
 		
+		final ScheduledExecutorService scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
+		
+		scheduledExecutor.scheduleWithFixedDelay(new Runnable(){
+
+			@Override
+			public void run() {
+				List<String> deletedTicketsId = dao.runCleaner();
+				
+				for(String id : deletedTicketsId){
+					existingTicketIds.remove(id);
+				}
+			}
+			
+		}, 5, 60, TimeUnit.SECONDS);	
+
 		while (true){
 			Ticket ticket = createRandomTicket(noOfTickets);
 			
@@ -46,7 +65,7 @@ public class Main {
 			
 			existingTicketIds.put(ticket.getId(), ticket);
 			sleep (1);
-		}
+		}				
 	}
 
 	private Ticket createRandomTicket(int noOfTickets) {

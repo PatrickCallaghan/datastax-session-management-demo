@@ -29,12 +29,10 @@ To create the schema, run the following
 
 	mvn clean compile exec:java -Dexec.mainClass="com.datastax.demo.SchemaSetup"
 	
-To create some transactions, run the following 
+To create some tickets and start the cleaner, run the following 
 	
 	mvn clean compile exec:java -Dexec.mainClass="com.datastax.session.Main"
 	
-	mvn clean compile exec:java -Dexec.mainClass="com.datastax.session.RunCleaner" 
-
 To remove the tables and the schema, run the following.
 
     mvn clean compile exec:java -Dexec.mainClass="com.datastax.demo.SchemaTeardown"

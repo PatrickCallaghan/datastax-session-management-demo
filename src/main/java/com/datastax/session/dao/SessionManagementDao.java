@@ -121,11 +121,12 @@ public class SessionManagementDao {
 		return true;
 	}
 	
-	public void runCleaner(){
+	public List<String> runCleaner(){
 		
 		//Get last cleaned time
 		DateTime lastClean = new DateTime(session.execute(selectLastTime.bind()).one().getDate("last_updated"));		
 		DateTime latestMinute = DateTime.now().minusMinutes(1);
+		List<String> deletedTicketIds = new ArrayList<String>();
 		
 		while (lastClean.isBefore(latestMinute)){
 			
@@ -133,25 +134,29 @@ public class SessionManagementDao {
 			
 			//Get all tickets that are eligible to expire - Full clean - must be expired
 			List<String> hardCleanTickets = this.getAllExpiryTickets(lastClean, Expiry.FULL.name());
-			this.hardCleanTickets(hardCleanTickets);
+			deletedTicketIds = this.hardCleanTickets(hardCleanTickets);
 			
 			//Get all tickets that are eligible to expire - only delete if time hasn't been updated in 15 minutes
 			List<String> tickets = this.getAllExpiryTickets(lastClean, Expiry.SOFT.name());
-			this.softCleanTickets(tickets);
+			deletedTicketIds.addAll(this.softCleanTickets(tickets));
 						
 			//Move on to next minute and save
 			lastClean = lastClean.plusMinutes(1);
 			session.execute(insertLastTime.bind(lastClean.toDate()));
 		}
+		
+		return deletedTicketIds;
 	}
 	
-	private void hardCleanTickets(List<String> hardCleanTickets){
+	private List<String> hardCleanTickets(List<String> hardCleanTickets){
 		AsyncWriterWrapper hardCleaner = new AsyncWriterWrapper();
-					
+		List<String> ticketIds = new ArrayList<String>();
+		
 		for (String id : hardCleanTickets){
 			hardCleaner.addStatement(this.deleteTicketStmt.bind(id));
 			
 			//Do something else with the ticket id if necessary.
+			ticketIds.add(id);
 		}
 		
 		logger.info("Cleaning HARD - " + hardCleanTickets.size() + " tickets.");
@@ -162,14 +167,16 @@ public class SessionManagementDao {
 			if (!hardCleaner.executeAsync(session)){
 				logger.info("Exception : " + hardCleaner.getException());
 			}else{
-				return;
+				return ticketIds;
 			}			
 		}
+		return ticketIds;
 	}
 	
-	private void softCleanTickets(List<String> softCleanTickets){
+	private List<String> softCleanTickets(List<String> softCleanTickets){
 		AsyncWriterWrapper softCleaner = new AsyncWriterWrapper();
 		
+		List<String> ticketIds = new ArrayList<String>();
 		for (String id : softCleanTickets){
 			
 			Ticket ticket = selectTicketById(id);
@@ -181,6 +188,7 @@ public class SessionManagementDao {
 					softCleaner.addStatement(this.deleteTicketStmt.bind(id));
 					
 					//Do something else with the ticket id if necessary.
+					ticketIds.add(id);
 				}									
 			}			
 		}
@@ -191,9 +199,10 @@ public class SessionManagementDao {
 			if (!softCleaner.executeAsync(session)){
 				logger.info("Exception : " + softCleaner.getException());
 			}else{
-				return;
+				return ticketIds;
 			}			
 		}
+		return ticketIds;
 	}
 	
 	public Ticket selectTicketById(String id){
