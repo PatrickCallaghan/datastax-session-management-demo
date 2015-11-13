@@ -45,7 +45,7 @@ public class Main {
 			}
 			
 			existingTicketIds.put(ticket.getId(), ticket);
-			sleep (100);
+			sleep (1);
 		}
 	}
 
