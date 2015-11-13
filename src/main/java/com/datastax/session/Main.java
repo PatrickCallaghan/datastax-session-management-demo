@@ -32,9 +32,9 @@ public class Main {
 		final ScheduledExecutorService scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
 		
 		scheduledExecutor.scheduleWithFixedDelay(new Runnable(){
-
 			@Override
 			public void run() {
+				logger.info("Starting clean");
 				List<String> deletedTicketsId = dao.runCleaner();
 				
 				for(String id : deletedTicketsId){
@@ -44,6 +44,8 @@ public class Main {
 			
 		}, 5, 60, TimeUnit.SECONDS);	
 
+		logger.info("Starting ticket generation.");
+		
 		while (true){
 			Ticket ticket = createRandomTicket(noOfTickets);
 			
