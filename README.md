@@ -46,13 +46,8 @@ To create some tickets and start the cleaner, run the following
 	
 	mvn clean compile exec:java -Dexec.mainClass="com.datastax.session.Main" -DcontactPoints=localhost
 	
-<<<<<<< HEAD
-=======
-	mvn clean compile exec:java -Dexec.mainClass="com.datastax.session.RunCleaner" -DcontactPoints=localhost 
-
->>>>>>> d3b7404812f0627b762517e826af93c595246e9c
 To remove the tables and the schema, run the following.
 
-    mvn clean compile exec:java -Dexec.mainClass="com.datastax.demo.SchemaTeardown" -DcontactPoints=localhost
+	mvn clean compile exec:java -Dexec.mainClass="com.datastax.demo.SchemaTeardown" -DcontactPoints=localhost
     
     
